@@ -1,0 +1,87 @@
+#include <Wire.h>
+#include <MPU6050.h>
+#include <LiquidCrystal.h>
+
+MPU6050 sensor;
+LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
+
+const int redPin = 3;
+const int greenPin = 5;
+const int bluePin = 6;
+
+int stepCount = 0;
+int16_t ax, ay, az;
+bool isSleepMode = false;
+
+const float stepThreshold = 0.012; // Adjusted based on my testing
+const float tiltThreshold = 1000; // Adjusted for slight tilt
+const float significantTiltThreshold = 5000; // Adjust for significant tilt
+unsigned long lastActivityTime = 0; // Variable to store the time of the last activity
+const unsigned long sleepDelay = 10000; // Time in milliseconds to enter sleep mode (10 seconds)
+
+void setup() {
+  Wire.begin();
+  sensor.initialize();
+  lcd.begin(16, 2);
+  Serial.begin(9600);
+
+  pinMode(redPin, OUTPUT);
+  pinMode(greenPin, OUTPUT);
+  pinMode(bluePin, OUTPUT);
+
+  lastActivityTime = millis(); // Initialize lastActivityTime
+}
+
+void setColor(bool red, bool green, bool blue) {
+  // For common anode RGB LED, a LOW signal will turn on the LED, and HIGH will turn it off
+  digitalWrite(redPin, red ? LOW : HIGH);
+  digitalWrite(greenPin, green ? LOW : HIGH);
+  digitalWrite(bluePin, blue ? LOW : HIGH);
+}
+void loop() {
+  unsigned long currentTime = millis();
+  if (!isSleepMode) {
+    sensor.getAcceleration(&ax, &ay, &az);
+    float aMagnitude = sqrt(ax * ax + ay * ay + az * az) / 16384.0; // Convert to g's
+
+    // Step detection logic
+    if (aMagnitude > stepThreshold) {
+      stepCount++;
+      lastActivityTime = currentTime; // Update last activity time
+    }
+
+    // Tilt detection and RGB LED control
+    if (abs(ax) > significantTiltThreshold || abs(ay) > significantTiltThreshold) {
+      setColor(true, false, false); // Red for significant tilt
+      lastActivityTime = currentTime; // Update last activity time
+    } else if (abs(ax) > tiltThreshold || abs(ay) > tiltThreshold) {
+      setColor(false, false, true); // Blue for slight tilt
+      lastActivityTime = currentTime; // Update last activity time
+    } else {
+      setColor(false, true, false); // Green for no tilt
+    }
+  }
+  // Check for sleep mode condition
+  if (currentTime - lastActivityTime > sleepDelay) {
+    // Enter sleep mode
+    isSleepMode = true;
+    // Turn off all LEDs
+    setColor(false, false, false);
+  }
+  // Display on LCD
+  lcd.clear();
+  if (isSleepMode) {
+    // If in sleep mode, display how long it has been in sleep mode
+    lcd.print("Sleep Mode: ");
+    lcd.print((currentTime - lastActivityTime) / 1000); // Show time in seconds
+    lcd.print("s");
+  } else {
+    // If not in sleep mode, display step count and tilt status
+    lcd.print("Steps: ");
+    lcd.print(stepCount);
+    lcd.setCursor(0, 1); // Move to the second line of the LCD.
+    lcd.print("Tilt: ");
+    lcd.print((abs(ax) > tiltThreshold || abs(ay) > tiltThreshold) ? "Yes" : "No");
+  }
+  delay(100);
+}
